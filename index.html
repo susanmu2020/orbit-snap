@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Orbit Snap — one-tap timing game</title>
+<meta name="description" content="Orbit Snap: tap once to snap your spinning comet into the glowing zone. It gets faster every hit. How long can you keep the combo?">
+<meta property="og:title" content="Orbit Snap">
+<meta property="og:description" content="One tap. Perfect timing. Endless speed. Can you beat my score?">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#120a2a">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none}
+html,body{height:100%;overflow:hidden;background:#120a2a;font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#fff;touch-action:manipulation}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+.ov{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:14px;padding:20px;background:radial-gradient(circle,#2a1060cc,#120a2aee);transition:opacity .3s}
+.hide{opacity:0;pointer-events:none}
+h1{font-size:clamp(44px,12vw,96px);font-weight:900;background:linear-gradient(90deg,#ff4fd8,#ffd84f,#4fffd0);-webkit-background-clip:text;background-clip:text;color:transparent;animation:bob 2s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(-8px) rotate(-2deg)}}
+p{opacity:.85;font-size:18px;max-width:420px}
+.btn{border:0;border-radius:999px;padding:14px 30px;font-size:20px;font-weight:800;cursor:pointer;color:#120a2a;background:linear-gradient(90deg,#ffd84f,#ff4fd8);box-shadow:0 6px 0 #7a1f6a;transition:transform .1s}
+.btn:active{transform:translateY(4px);box-shadow:0 2px 0 #7a1f6a}
+.btn.alt{background:linear-gradient(90deg,#4fffd0,#4f9bff);box-shadow:0 6px 0 #1f4a7a}
+#beat{background:#ff4fd833;border:2px solid #ff4fd8;border-radius:14px;padding:8px 16px;font-weight:800}
+#hud{position:fixed;top:14px;left:0;right:0;text-align:center;font-size:44px;font-weight:900;pointer-events:none;text-shadow:0 4px 0 #0006}
+#combo{font-size:18px;color:#ffd84f}
+#mute{position:fixed;top:12px;right:12px;font-size:24px;background:#fff2;border:0;border-radius:50%;width:46px;height:46px;cursor:pointer;z-index:9;color:#fff}
+#toast{position:fixed;bottom:30px;left:50%;transform:translate(-50%,100px);background:#4fffd0;color:#120a2a;padding:12px 20px;border-radius:12px;font-weight:800;transition:transform .3s;z-index:10}
+#toast.on{transform:translate(-50%,0)}
+.big{font-size:64px;font-weight:900}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="sc">0</div><div id="combo"></div></div>
+<button id="mute" aria-label="Toggle sound">🔊</button>
+<div id="title" class="ov">
+ <h1>Orbit Snap</h1>
+ <div id="beat" class="hide" style="display:none"></div>
+ <p>Your comet circles the planet. <b>Tap anywhere</b> when it's inside the glowing zone. Hit the center for PERFECT combos. It gets faster!</p>
+ <button class="btn" id="play">TAP TO PLAY</button>
+ <p id="tbest"></p>
+</div>
+<div id="over" class="ov hide">
+ <h2>GAME OVER</h2>
+ <div class="big" id="fs">0</div>
+ <p id="fb"></p>
+ <button class="btn" id="again">PLAY AGAIN</button>
+ <button class="btn alt" id="share">🏆 Challenge a friend</button>
+</div>
+<div id="toast"></div>
+<script>
+(()=>{
+const NAME="Orbit Snap",$=id=>document.getElementById(id);
+const cv=$('c'),x=cv.getContext('2d');let W,H,R,cx,cy,dpr;
+function rs(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;x.setTransform(dpr,0,0,dpr,0,0);cx=W/2;cy=H/2+20;R=Math.min(W,H)*0.32}
+addEventListener('resize',rs);rs();
+let best=+(localStorage.getItem('orbitsnap_best')||0);
+const beat=parseInt(new URLSearchParams(location.search).get('beat'));
+if(beat>0){const b=$('beat');b.style.display='';b.classList.remove('hide');b.textContent='Your friend scored '+beat+' — beat it!'}
+function showBest(){$('tbest').textContent=best?'Best: '+best:''}showBest();
+// audio
+let ac,muted=localStorage.getItem('orbitsnap_mute')==='1';
+function upM(){$('mute').textContent=muted?'🔇':'🔊'}upM();
+$('mute').onclick=e=>{e.stopPropagation();muted=!muted;localStorage.setItem('orbitsnap_mute',muted?'1':'0');upM()};
+function tone(f,d=.12,t='sine',v=.2,slide=0){if(muted)return;try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();const o=ac.createOscillator(),g=ac.createGain(),n=ac.currentTime;o.type=t;o.frequency.setValueAtTime(f,n);if(slide)o.frequency.exponentialRampToValueAtTime(slide,n+d);g.gain.setValueAtTime(v,n);g.gain.exponentialRampToValueAtTime(.001,n+d);o.connect(g).connect(ac.destination);o.start(n);o.stop(n+d)}catch(e){}}
+// state
+let rem=0,st='title',ang,spd,dir,zone,zw,score,combo,parts=[],rings=[],shake=0,flash=0,texts=[],hue=0,last=0;
+const stars=Array.from({length:120},()=>({x:Math.random(),y:Math.random(),s:Math.random()*2+.5,t:Math.random()*6}));
+function newZone(){zone=ang+dir*(Math.PI*.6+Math.random()*Math.PI*.9);zw=Math.max(.22,.62-score*.012);rem=Math.abs(zone-ang)}
+function start(){st='play';ang=-Math.PI/2;spd=2.2;dir=1;score=0;combo=0;newZone();$('title').classList.add('hide');$('over').classList.add('hide');upHud();tone(440,.1,'triangle',.2,880)}
+function upHud(){$('sc').textContent=st==='play'?score:'';$('combo').textContent=combo>1?'COMBO x'+combo:''}
+function burst(px,py,n,h,sp=6){for(let i=0;i<n;i++){const a=Math.random()*7,v=Math.random()*sp+1;parts.push({x:px,y:py,vx:Math.cos(a)*v,vy:Math.sin(a)*v,l:1,h:h+Math.random()*60,s:Math.random()*4+2})}}
+function norm(a){a%=Math.PI*2;if(a>Math.PI)a-=Math.PI*2;if(a<-Math.PI)a+=Math.PI*2;return a}
+function tap(){
+ if(st!=='play')return;
+ const d=Math.abs(rem),px=cx+Math.cos(ang)*R,py=cy+Math.sin(ang)*R;
+ if(d<=zw/2){
+  const perfect=d<zw*.15;combo=perfect?combo+1:0;const pts=1+(perfect?Math.min(combo,10):0);score+=pts;
+  burst(px,py,perfect?50:25,hue,perfect?9:6);rings.push({x:px,y:py,r:5,l:1});
+  texts.push({x:px,y:py,t:perfect?'PERFECT +'+pts:'+1',l:1});
+  tone(perfect?660+combo*60:520,.15,'triangle',.25,perfect?1320+combo*80:780);
+  shake=perfect?8:4;flash=perfect?.35:.15;spd+=.12;dir=-dir;hue=(hue+37)%360;newZone();
+ }else end(px,py);
+ upHud();
+}
+function end(px,py){st='over';burst(px,py,90,0,10);shake=20;flash=.6;tone(220,.5,'sawtooth',.25,55);
+ const nb=score>best;if(nb){best=score;localStorage.setItem('orbitsnap_best',best)}
+ setTimeout(()=>{$('fs').textContent=score;$('fb').textContent=(nb&&score?'🎉 NEW BEST! ':'Best: '+best+' ')+(beat>0?(score>beat?' You beat your friend ('+beat+')!':' Friend: '+beat):'');$('over').classList.remove('hide');showBest();upHud()},700)}
+function shareUrl(){const u=new URL(location.href);u.searchParams.set('beat',score);return u.toString()}
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2200)}
+$('share').onclick=async e=>{e.stopPropagation();const url=shareUrl(),msg='I scored '+score+' in '+NAME+'! Can you beat me? '+url;
+ if(navigator.share){try{await navigator.share({title:NAME,text:'I scored '+score+' in '+NAME+'! Can you beat me?',url});return}catch(err){if(err&&err.name==='AbortError')return}}
+ try{await navigator.clipboard.writeText(msg);toast('Copied! Send it to a friend 🚀')}catch(err){const ta=document.createElement('textarea');ta.value=msg;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast('Copied! Send it to a friend 🚀')}catch(_){toast(msg)}ta.remove()}};
+$('play').onclick=e=>{e.stopPropagation();start()};
+$('again').onclick=e=>{e.stopPropagation();start()};
+addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;if(st==='play')tap();else if(st==='title')start()});
+addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='Enter'){e.preventDefault();st==='play'?tap():st==='title'?start():0}});
+function loop(t){const dt=Math.min((t-last)/1000||0,.05);last=t;
+ if(st==='play'){ang+=dir*spd*dt;rem-=spd*dt;if(rem<-zw/2)end(cx+Math.cos(ang)*R,cy+Math.sin(ang)*R);
+  // missed: passed zone by more than a full lap past
+ }
+ x.save();x.fillStyle='#120a2a';x.fillRect(0,0,W,H);
+ const g=x.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H));g.addColorStop(0,`hsla(${hue+260},70%,25%,1)`);g.addColorStop(1,'#120a2a');x.fillStyle=g;x.fillRect(0,0,W,H);
+ if(shake>0){x.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);shake*=.88;if(shake<.3)shake=0}
+ for(const s of stars){s.t+=dt*2;x.globalAlpha=.4+.4*Math.sin(s.t);x.fillStyle='#fff';x.fillRect(s.x*W,s.y*H,s.s,s.s)}x.globalAlpha=1;
+ // track
+ x.strokeStyle='#ffffff22';x.lineWidth=14;x.beginPath();x.arc(cx,cy,R,0,7);x.stroke();
+ if(st!=='title'&&zone!==undefined){const p=1+.08*Math.sin(t/120);x.lineWidth=22*p;x.lineCap='round';x.shadowBlur=25;x.shadowColor=`hsl(${hue},100%,60%)`;x.strokeStyle=`hsl(${hue},100%,60%)`;x.beginPath();x.arc(cx,cy,R,zone-zw/2,zone+zw/2);x.stroke();
+  x.strokeStyle='#fff';x.lineWidth=8;x.beginPath();x.arc(cx,cy,R,zone-zw*.15,zone+zw*.15);x.stroke();x.shadowBlur=0}
+ // planet
+ const pg=x.createRadialGradient(cx-R*.12,cy-R*.12,5,cx,cy,R*.42);pg.addColorStop(0,`hsl(${hue+40},100%,75%)`);pg.addColorStop(1,`hsl(${hue+300},80%,40%)`);x.fillStyle=pg;x.beginPath();x.arc(cx,cy,R*.38*(1+flash*.2),0,7);x.fill();
+ // comet
+ const a=st==='title'?t/600:ang;
+ for(let i=12;i>=0;i--){const aa=a-(st==='play'?dir:1)*i*.045,px=cx+Math.cos(aa)*R,py=cy+Math.sin(aa)*R;x.globalAlpha=(1-i/13)*.8;x.fillStyle=`hsl(${hue+i*12},100%,65%)`;x.beginPath();x.arc(px,py,14*(1-i/16),0,7);x.fill()}
+ x.globalAlpha=1;if(st!=='over'){x.fillStyle='#fff';x.shadowBlur=20;x.shadowColor='#fff';x.beginPath();x.arc(cx+Math.cos(a)*R,cy+Math.sin(a)*R,10,0,7);x.fill();x.shadowBlur=0}
+ for(let i=parts.length;i--;){const p=parts[i];p.x+=p.vx;p.y+=p.vy;p.vy+=.12;p.vx*=.98;p.l-=dt*1.4;if(p.l<=0){parts.splice(i,1);continue}x.globalAlpha=p.l;x.fillStyle=`hsl(${p.h},100%,65%)`;x.fillRect(p.x,p.y,p.s,p.s)}
+ for(let i=rings.length;i--;){const r=rings[i];r.r+=6;r.l-=dt*2;if(r.l<=0){rings.splice(i,1);continue}x.globalAlpha=r.l;x.strokeStyle='#fff';x.lineWidth=3;x.beginPath();x.arc(r.x,r.y,r.r,0,7);x.stroke()}
+ x.textAlign='center';x.font='900 24px system-ui';for(let i=texts.length;i--;){const q=texts[i];q.y-=1.2;q.l-=dt*1.2;if(q.l<=0){texts.splice(i,1);continue}x.globalAlpha=q.l;x.fillStyle='#ffd84f';x.fillText(q.t,q.x,q.y-20)}
+ x.globalAlpha=1;x.restore();
+ if(flash>0){x.fillStyle=`rgba(255,255,255,${flash})`;x.fillRect(0,0,W,H);flash=Math.max(0,flash-dt*2)}
+ requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+})();
+</script></body></html>
