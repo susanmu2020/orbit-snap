@@ -26,6 +26,8 @@ p{opacity:.85;font-size:18px;max-width:420px}
 #toast{position:fixed;bottom:30px;left:50%;transform:translate(-50%,100px);background:#4fffd0;color:#120a2a;padding:12px 20px;border-radius:12px;font-weight:800;transition:transform .3s;z-index:10}
 #toast.on{transform:translate(-50%,0)}
 .big{font-size:64px;font-weight:900}
+.support{color:#ffd84f;font-weight:800;font-size:16px;text-decoration:none;border:2px solid #ffd84f88;border-radius:999px;padding:8px 18px}
+.support:hover{background:#ffd84f22}
 </style></head><body>
 <canvas id="c"></canvas>
 <div id="hud"><div id="sc">0</div><div id="combo"></div></div>
@@ -36,6 +38,7 @@ p{opacity:.85;font-size:18px;max-width:420px}
  <p>Your comet circles the planet. <b>Tap anywhere</b> when it's inside the glowing zone. Hit the center for PERFECT combos. It gets faster!</p>
  <button class="btn" id="play">TAP TO PLAY</button>
  <p id="tbest"></p>
+ <a class="support" href="https://ko-fi.com/freedom222" target="_blank" rel="noopener noreferrer">❤️ Support the game</a>
 </div>
 <div id="over" class="ov hide">
  <h2>GAME OVER</h2>
@@ -43,6 +46,7 @@ p{opacity:.85;font-size:18px;max-width:420px}
  <p id="fb"></p>
  <button class="btn" id="again">PLAY AGAIN</button>
  <button class="btn alt" id="share">🏆 Challenge a friend</button>
+ <a class="support" href="https://ko-fi.com/freedom222" target="_blank" rel="noopener noreferrer">❤️ Support the game</a>
 </div>
 <div id="toast"></div>
 <script>
@@ -90,7 +94,7 @@ $('share').onclick=async e=>{e.stopPropagation();const url=shareUrl(),msg='I sco
  try{await navigator.clipboard.writeText(msg);toast('Copied! Send it to a friend 🚀')}catch(err){const ta=document.createElement('textarea');ta.value=msg;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast('Copied! Send it to a friend 🚀')}catch(_){toast(msg)}ta.remove()}};
 $('play').onclick=e=>{e.stopPropagation();start()};
 $('again').onclick=e=>{e.stopPropagation();start()};
-addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;if(st==='play')tap();else if(st==='title')start()});
+addEventListener('pointerdown',e=>{if(e.target.closest('button,a'))return;if(st==='play')tap();else if(st==='title')start()});
 addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='Enter'){e.preventDefault();st==='play'?tap():st==='title'?start():0}});
 function loop(t){const dt=Math.min((t-last)/1000||0,.05);last=t;
  if(st==='play'){ang+=dir*spd*dt;rem-=spd*dt;if(rem<-zw/2)end(cx+Math.cos(ang)*R,cy+Math.sin(ang)*R);
